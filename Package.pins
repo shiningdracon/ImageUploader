@@ -1,0 +1,30 @@
+{
+  "autoPin": true,
+  "pins": [
+    {
+      "package": "Cgd",
+      "reason": null,
+      "repositoryURL": "https://github.com/twostraws/Cgd.git",
+      "version": "0.1.0"
+    },
+    {
+      "package": "CommonCrypto",
+      "reason": null,
+      "repositoryURL": "https://github.com/IBM-Swift/CommonCrypto.git",
+      "version": "0.1.5"
+    },
+    {
+      "package": "Cryptor",
+      "reason": null,
+      "repositoryURL": "https://github.com/IBM-Swift/BlueCryptor.git",
+      "version": "0.8.16"
+    },
+    {
+      "package": "SwiftGD",
+      "reason": null,
+      "repositoryURL": "https://github.com/shiningdracon/SwiftGD.git",
+      "version": "1.4.1"
+    }
+  ],
+  "version": 1
+}
