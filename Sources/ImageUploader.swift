@@ -1,3 +1,10 @@
+#if os(Linux)
+    import Glibc
+    import Cgdlinux
+#else
+    import Darwin
+    import Cgdmac
+#endif
 import Foundation
 import SwiftGD
 import Cryptor
@@ -7,6 +14,7 @@ public class ImageUploader {
     public enum ImageUploadError: Error {
         case IOError(String)
         case TypeError
+        case SizeError
         case ValidationError
         case OperationError(String)
     }
@@ -27,45 +35,48 @@ public class ImageUploader {
     }
 
     let imageVersions: Array<ImageOptions>
+    let maxDimensions: Int
 
-    init(imageVersions: Array<ImageOptions>) {
+    init(maxDimensions: Int, imageVersions: Array<ImageOptions>) {
         self.imageVersions = imageVersions
+        self.maxDimensions = maxDimensions
     }
 
-    func uploadByFile(path: String, contentType: String, localMainName: String) throws -> Array<(path: String, name: String, size: Int, hash: String, width: Int, height: Int)> {
-        var fileExtension: ImageTypes
-        if contentType == "image/jpeg" {
-            fileExtension = .jpg
-        } else if contentType == "image/png" {
-            fileExtension = .png
-        } else {
-            throw ImageUploadError.TypeError
+    func uploadByFile(path: String, localMainName: String) throws -> Array<(path: String, name: String, size: Int, hash: String, width: Int, height: Int)> {
+
+        let fileUrl = URL(fileURLWithPath: path)
+
+        let (width, height, fileExtension) = try getImageInfo(path: path)
+
+        let dimensions: Int = Int(width) * Int(height)
+        if dimensions > maxDimensions {
+            throw ImageUploadError.SizeError
         }
 
-        if let image = Image(url: URL(fileURLWithPath: path)) {
+        if let image = Image(url: fileUrl) {
             return try saveImage(image: image, ext: fileExtension, localMainName: localMainName)
         } else {
             throw ImageUploadError.ValidationError
         }
     }
 
-    func uploadByBase64(base64: String, contentType: String) {
+    func uploadByBase64(base64: String, localMainName: String) {
 
     }
 
-    func uploadByRemote(url: String) {
+    func uploadByRemote(url: String, localMainName: String) {
 
     }
 
     private func saveImage(image: Image, ext: ImageTypes, localMainName: String) throws -> Array<(path: String, name: String, size: Int, hash: String, width: Int, height: Int)> {
+
+        let (width, height) = image.size
 
         var infos: Array<(path: String, name: String, size: Int, hash: String, width: Int, height: Int)> = []
         for option in imageVersions {
             let fullName = localMainName + "_" + option.nameSufix + "." + ext.rawValue
             let fullPath = option.uploadDir + "/" + fullName
             let fileUrl = URL(fileURLWithPath: fullPath)
-
-            var (width, height) = image.size
 
             var adjustedImage: Image?
             if width > option.maxWidth && height > option.maxHeight {
@@ -77,11 +88,11 @@ public class ImageUploader {
                         if adjustedImage != nil {
                             let (resizedWidth, resizedHeight) = adjustedImage!.size
                             let cropX: Int
-                            if resizedWidth > resizedHeight * 3 {
-                                // use head part (may be a comic)
+                            if resizedWidth >= resizedHeight * 3 {
+                                // wide picture (may be a comic), and we are very likely generating a thumbnail, use head part
                                 cropX = 0
                             } else {
-                                // use middle part
+                                // for normal picture, use middle part
                                 cropX = (resizedWidth - option.maxWidth) / 2
                             }
                             adjustedImage = adjustedImage!.crop(x: cropX, y: 0, width: option.maxWidth, height: resizedHeight)
@@ -91,11 +102,11 @@ public class ImageUploader {
                         if adjustedImage != nil {
                             let (resizedWidth, resizedHeight) = adjustedImage!.size
                             let cropY: Int
-                            if resizedHeight > resizedWidth * 3 {
-                                // use head part (may be a comic)
+                            if resizedHeight >= resizedWidth * 3 {
+                                // long picture (may be a comic), and we are very likely generating a thumbnail, use head part
                                 cropY = 0
                             } else {
-                                // use middle part
+                                // for normal picture, use middle part
                                 cropY = (resizedHeight - option.maxHeight) / 2
                             }
                             adjustedImage = adjustedImage!.crop(x: 0, y: cropY, width: resizedWidth, height: option.maxHeight)
@@ -130,7 +141,7 @@ public class ImageUploader {
             }
 
 
-            (width, height) = adjustedImage!.size
+            let (newWidth, newHeight) = adjustedImage!.size
 
             let data: Data?
             let size: Int32
@@ -160,10 +171,53 @@ public class ImageUploader {
                 throw ImageUploadError.IOError("Write file failed")
             }
 
-            infos.append((fullPath, fullName, Int(size), hash, width, height))
+            infos.append((fullPath, fullName, Int(size), hash, newWidth, newHeight))
         }
 
         return infos
+    }
+
+    private func getImageInfo(path: String) throws -> (width: UInt32, height: UInt32, type: ImageTypes) {
+        let inputFile = fopen(path, "rb")
+        if inputFile == nil {
+            throw ImageUploadError.IOError("Open file error")
+        }
+
+        defer {
+            if inputFile != nil {
+                fclose(inputFile)
+            }
+        }
+
+
+        let buffer = [UInt8](repeating: 0, count: 48)
+        if fread(UnsafeMutablePointer(mutating: buffer), buffer.count, 1, inputFile) == 1 {
+            if isHeaderPng(bytes: buffer) {
+                let width = (UnsafeRawPointer(buffer) + 16).bindMemory(to: UInt32.self, capacity: 1).pointee.bigEndian
+                let height = (UnsafeRawPointer(buffer) + 20).bindMemory(to: UInt32.self, capacity: 1).pointee.bigEndian
+                return (width, height, ImageTypes.png)
+            } else { //TODO: jpg
+                throw ImageUploadError.TypeError
+            }
+        } else {
+            throw ImageUploadError.IOError("Read file error")
+        }
+    }
+
+    private func isHeaderPng(bytes: [UInt8]) -> Bool {
+        let pngHeader:[UInt8] = [137, 80, 78, 71, 13, 10, 26, 10]
+        if bytes.count < pngHeader.count {
+            return false
+        }
+        for x in 0 ..< pngHeader.count {
+            let byte = bytes[x]
+            let header = pngHeader[x]
+            if byte != header {
+                return false
+            }
+        }
+
+        return true
     }
 }
 
