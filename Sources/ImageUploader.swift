@@ -32,6 +32,7 @@ public class ImageUploader {
     enum ImageTypes: String {
         case png = "png"
         case jpg = "jpg"
+        case gif = "gif"
     }
 
     let imageVersions: Array<ImageOptions>
@@ -46,7 +47,7 @@ public class ImageUploader {
 
         let fileUrl = URL(fileURLWithPath: path)
 
-        let (width, height, fileExtension) = try getImageInfo(path: path)
+        let (fileType, width, height) = try getImageInfo(path: path)
 
         let dimensions: Int = Int(width) * Int(height)
         if dimensions > maxDimensions {
@@ -54,7 +55,7 @@ public class ImageUploader {
         }
 
         if let image = Image(url: fileUrl) {
-            return try saveImage(image: image, ext: fileExtension, localMainName: localMainName)
+            return try saveImage(image: image, type: fileType, localMainName: localMainName)
         } else {
             throw ImageUploadError.ValidationError
         }
@@ -68,13 +69,13 @@ public class ImageUploader {
 
     }
 
-    private func saveImage(image: Image, ext: ImageTypes, localMainName: String) throws -> Array<(path: String, name: String, size: Int, hash: String, width: Int, height: Int)> {
+    private func saveImage(image: Image, type: ImageTypes, localMainName: String) throws -> Array<(path: String, name: String, size: Int, hash: String, width: Int, height: Int)> {
 
         let (width, height) = image.size
 
         var infos: Array<(path: String, name: String, size: Int, hash: String, width: Int, height: Int)> = []
         for option in imageVersions {
-            let fullName = localMainName + "_" + option.nameSufix + "." + ext.rawValue
+            let fullName = localMainName + "_" + option.nameSufix + "." + type.rawValue
             let fullPath = option.uploadDir + "/" + fullName
             let fileUrl = URL(fileURLWithPath: fullPath)
 
@@ -146,11 +147,13 @@ public class ImageUploader {
             let data: Data?
             let size: Int32
 
-            switch ext {
+            switch type {
             case .jpg:
                 (data, size) = adjustedImage!.writeToJpegData(quality: option.quality)
             case .png:
                 (data, size) = adjustedImage!.writeToPngData()
+            case .gif:
+                (data, size) = adjustedImage!.writeToGifData()
             }
             if data == nil {
                 throw ImageUploadError.OperationError("Generate image failed")
@@ -177,47 +180,90 @@ public class ImageUploader {
         return infos
     }
 
-    private func getImageInfo(path: String) throws -> (width: UInt32, height: UInt32, type: ImageTypes) {
-        let inputFile = fopen(path, "rb")
-        if inputFile == nil {
+    private func getImageInfo(path: String) throws -> (type: ImageTypes, width: UInt32, height: UInt32) {
+        guard let inputFile = fopen(path, "rb") else {
             throw ImageUploadError.IOError("Open file error")
         }
 
         defer {
-            if inputFile != nil {
-                fclose(inputFile)
-            }
+            fclose(inputFile)
         }
 
-
-        let buffer = [UInt8](repeating: 0, count: 48)
+        let buffer = [UInt8](repeating: 0, count: 8)
         if fread(UnsafeMutablePointer(mutating: buffer), buffer.count, 1, inputFile) == 1 {
-            if isHeaderPng(bytes: buffer) {
-                let width = (UnsafeRawPointer(buffer) + 16).bindMemory(to: UInt32.self, capacity: 1).pointee.bigEndian
-                let height = (UnsafeRawPointer(buffer) + 20).bindMemory(to: UInt32.self, capacity: 1).pointee.bigEndian
-                return (width, height, ImageTypes.png)
-            } else { //TODO: jpg
-                throw ImageUploadError.TypeError
+            let type = try getImageType(buffer: buffer)
+            let width: UInt32, height: UInt32
+            switch type {
+            case .png:
+                let pngBuffer = [UInt8](repeating: 0, count: 8)
+                guard fseek(inputFile, 16, SEEK_SET) == 0 else {
+                    throw ImageUploadError.IOError("Seek file error")
+                }
+                guard fread(UnsafeMutablePointer(mutating: pngBuffer), pngBuffer.count, 1, inputFile) == 1 else {
+                    throw ImageUploadError.IOError("Read file error")
+                }
+                width = (UInt32(pngBuffer[0]) << 24) + (UInt32(pngBuffer[1]) << 16) + (UInt32(pngBuffer[2]) << 8) + UInt32(pngBuffer[3])
+                height = (UInt32(pngBuffer[4]) << 24) + (UInt32(pngBuffer[5]) << 16) + (UInt32(pngBuffer[6]) << 8) + UInt32(pngBuffer[7])
+                return (type, width, height)
+            case .jpg:
+                let jpgBuffer = [UInt8](repeating: 0, count: 10)
+                guard fseek(inputFile, 2, SEEK_SET) == 0 else {
+                    throw ImageUploadError.IOError("Seek file error")
+                }
+                while (true) {
+                    guard fread(UnsafeMutablePointer(mutating: jpgBuffer), jpgBuffer.count, 1, inputFile) == 1 else {
+                        throw ImageUploadError.IOError("Read file error")
+                    }
+                    if jpgBuffer[0] == 0xFF {
+                        if jpgBuffer[1] == 0xC0 {
+                            let sizeSection = Int(UInt16(jpgBuffer[2]) << 8) + Int(jpgBuffer[3])
+                            if sizeSection < 8 {
+                                throw ImageUploadError.ValidationError
+                            }
+                            width = UInt32(UInt16(jpgBuffer[5]) << 8) + UInt32(jpgBuffer[6])
+                            height = UInt32(UInt16(jpgBuffer[7]) << 8) + UInt32(jpgBuffer[8])
+                            return (ImageTypes.jpg, width, height)
+                        } else {
+                            let sizeSection = Int(UInt16(jpgBuffer[2]) << 8) + Int(jpgBuffer[3])
+                            guard fseek(inputFile, 2 + sizeSection - jpgBuffer.count, SEEK_CUR) == 0 else {
+                                throw ImageUploadError.IOError("Seek file error")
+                            }
+                        }
+                    } else {
+                        throw ImageUploadError.ValidationError
+                    }
+                }
+            case .gif:
+                let gifBuffer = [UInt8](repeating: 0, count: 4)
+                guard fseek(inputFile, 6, SEEK_SET) == 0 else {
+                    throw ImageUploadError.IOError("Seek file error")
+                }
+                guard fread(UnsafeMutablePointer(mutating: gifBuffer), gifBuffer.count, 1, inputFile) == 1 else {
+                    throw ImageUploadError.IOError("Read file error")
+                }
+                width = UInt32(gifBuffer[0]) + (UInt32(gifBuffer[1]) << 8)
+                height = UInt32(gifBuffer[2]) + (UInt32(gifBuffer[3]) << 8)
+                return (type, width, height)
             }
         } else {
             throw ImageUploadError.IOError("Read file error")
         }
     }
 
-    private func isHeaderPng(bytes: [UInt8]) -> Bool {
-        let pngHeader:[UInt8] = [137, 80, 78, 71, 13, 10, 26, 10]
-        if bytes.count < pngHeader.count {
-            return false
+    private let pngHeader: [UInt8] = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+    private let jpgHeader: [UInt8] = [0xff, 0xd8, 0xff]
+    private let gifHeader: [UInt8] = [0x47, 0x49, 0x46]
+    // Detect image type from first bytes
+    private func getImageType(buffer: [UInt8]) throws -> ImageTypes {
+        if memcmp(UnsafeRawPointer(buffer), UnsafeRawPointer(jpgHeader), 3) == 0 {
+            return ImageTypes.jpg
+        } else if memcmp(UnsafeRawPointer(buffer), UnsafeRawPointer(gifHeader), 3) == 0 {
+            return ImageTypes.gif
+        } else if memcmp(UnsafeRawPointer(buffer), UnsafeRawPointer(pngHeader), 8) == 0 {
+            return ImageTypes.png
+        } else {
+            throw ImageUploadError.TypeError
         }
-        for x in 0 ..< pngHeader.count {
-            let byte = bytes[x]
-            let header = pngHeader[x]
-            if byte != header {
-                return false
-            }
-        }
-
-        return true
     }
 }
 

@@ -25,7 +25,22 @@ class ImageUploaderTests: XCTestCase {
     }
 
     func testUploadByFile() {
-        
+        let uploader = ImageUploader(maxDimensions: 100 * 100,
+                                     imageVersions: [
+                                        ImageUploader.ImageOptions(
+                                            uploadDir: "",
+                                            nameSufix: "",
+                                            maxWidth: 10,
+                                            maxHeight: 10,
+                                            quality: 100,
+                                            rotateByExif: false,
+                                            crop: false
+                                        )])
+        do {
+            try uploader.uploadByFile(path: "2.jpg", localMainName: "123")
+        } catch {
+
+        }
     }
 
 
