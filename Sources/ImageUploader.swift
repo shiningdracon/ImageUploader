@@ -225,6 +225,9 @@ public class ImageUploader {
                             return (ImageTypes.jpg, width, height)
                         } else {
                             let sizeSection = Int(UInt16(jpgBuffer[2]) << 8) + Int(jpgBuffer[3])
+                            if sizeSection < 2 {
+                                throw ImageUploadError.ValidationError
+                            }
                             guard fseek(inputFile, 2 + sizeSection - jpgBuffer.count, SEEK_CUR) == 0 else {
                                 throw ImageUploadError.IOError("Seek file error")
                             }
