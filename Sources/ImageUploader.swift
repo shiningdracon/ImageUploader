@@ -19,7 +19,7 @@ public class ImageUploader {
         case OperationError(String)
     }
 
-    struct ImageOptions {
+    public struct ImageOptions {
         let uploadDir: String
         let nameSufix: String
         let maxWidth: Int
@@ -27,9 +27,19 @@ public class ImageUploader {
         let quality: Int
         let rotateByExif: Bool
         let crop: Bool
+
+        public init(uploadDir: String, nameSufix: String, maxWidth: Int, maxHeight: Int, quality: Int, rotateByExif: Bool, crop: Bool) {
+            self.uploadDir = uploadDir
+            self.nameSufix = nameSufix
+            self.maxWidth = maxWidth
+            self.maxHeight = maxHeight
+            self.quality = quality
+            self.rotateByExif = rotateByExif
+            self.crop = crop
+        }
     }
 
-    enum ImageTypes: String {
+    public enum ImageTypes: String {
         case png = "png"
         case jpg = "jpg"
         case gif = "gif"
@@ -38,12 +48,12 @@ public class ImageUploader {
     let imageVersions: Array<ImageOptions>
     let maxDimensions: Int
 
-    init(maxDimensions: Int, imageVersions: Array<ImageOptions>) {
+    public init(maxDimensions: Int, imageVersions: Array<ImageOptions>) {
         self.imageVersions = imageVersions
         self.maxDimensions = maxDimensions
     }
 
-    func uploadByFile(path: String, localMainName: String) throws -> Array<(path: String, name: String, size: Int, hash: String, width: Int, height: Int)> {
+    public func uploadByFile(path: String, localMainName: String) throws -> Array<(type: ImageTypes, path: String, name: String, size: Int, hash: String, width: Int, height: Int)> {
 
         let fileUrl = URL(fileURLWithPath: path)
 
@@ -61,11 +71,11 @@ public class ImageUploader {
         }
     }
 
-    private func saveImage(image: Image, type: ImageTypes, localMainName: String) throws -> Array<(path: String, name: String, size: Int, hash: String, width: Int, height: Int)> {
+    private func saveImage(image: Image, type: ImageTypes, localMainName: String) throws -> Array<(type: ImageTypes, path: String, name: String, size: Int, hash: String, width: Int, height: Int)> {
 
         let (width, height) = image.size
 
-        var infos: Array<(path: String, name: String, size: Int, hash: String, width: Int, height: Int)> = []
+        var infos: Array<(type: ImageTypes, path: String, name: String, size: Int, hash: String, width: Int, height: Int)> = []
         for option in imageVersions {
             let fullName = localMainName + option.nameSufix + "." + type.rawValue
             let fullPath = option.uploadDir + "/" + fullName
@@ -166,7 +176,7 @@ public class ImageUploader {
                 throw ImageUploadError.IOError("Write file failed")
             }
 
-            infos.append((fullPath, fullName, Int(size), hash, newWidth, newHeight))
+            infos.append((type, fullPath, fullName, Int(size), hash, newWidth, newHeight))
         }
 
         return infos
@@ -259,50 +269,5 @@ public class ImageUploader {
         } else {
             throw ImageUploadError.TypeError
         }
-    }
-}
-
-extension String {
-    var filePathSeparator: UnicodeScalar {
-        return UnicodeScalar(47)
-    }
-
-    var fileExtensionSeparator: UnicodeScalar {
-        return UnicodeScalar(46)
-    }
-
-    private func lastPathSeparator(in unis: String.CharacterView) -> String.CharacterView.Index {
-        let startIndex = unis.startIndex
-        var endIndex = unis.endIndex
-        while endIndex != startIndex {
-            if unis[unis.index(before: endIndex)] != Character(filePathSeparator) {
-                break
-            }
-            endIndex = unis.index(before: endIndex)
-        }
-        return endIndex
-    }
-
-    private func lastExtensionSeparator(in unis: String.CharacterView, endIndex: String.CharacterView.Index) -> String.CharacterView.Index {
-        var endIndex = endIndex
-        while endIndex != startIndex {
-            endIndex = unis.index(before: endIndex)
-            if unis[endIndex] == Character(fileExtensionSeparator) {
-                break
-            }
-        }
-        return endIndex
-    }
-
-    public var filePathExtension: String {
-        let unis = self.characters
-        let startIndex = unis.startIndex
-        var endIndex = lastPathSeparator(in: unis)
-        let noTrailsIndex = endIndex
-        endIndex = lastExtensionSeparator(in: unis, endIndex: endIndex)
-        guard endIndex != startIndex else {
-            return ""
-        }
-        return self[unis.index(after: endIndex)..<noTrailsIndex]
     }
 }
