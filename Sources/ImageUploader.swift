@@ -67,7 +67,7 @@ public class ImageUploader {
 
         var infos: Array<(path: String, name: String, size: Int, hash: String, width: Int, height: Int)> = []
         for option in imageVersions {
-            let fullName = localMainName + "_" + option.nameSufix + "." + type.rawValue
+            let fullName = localMainName + option.nameSufix + "." + type.rawValue
             let fullPath = option.uploadDir + "/" + fullName
             let fileUrl = URL(fileURLWithPath: fullPath)
 
@@ -75,8 +75,8 @@ public class ImageUploader {
             if width > option.maxWidth && height > option.maxHeight {
                 // both width and height oversized, need resize
                 if option.crop {
-                    // resize to short edge, then crop
-                    if width > height {
+                    // resize to witch out limited less, then crop
+                    if width / option.maxWidth > height / option.maxHeight {
                         adjustedImage = image.resizedTo(height: option.maxHeight, applySmoothing: true)
                         if adjustedImage != nil {
                             let (resizedWidth, resizedHeight) = adjustedImage!.size
@@ -106,8 +106,8 @@ public class ImageUploader {
                         }
                     }
                 } else {
-                    // resize to long edge
-                    if width > height {
+                    // resize to witch out limited most
+                    if width / option.maxWidth > height / option.maxHeight {
                         adjustedImage = image.resizedTo(width: option.maxWidth, applySmoothing: true)
                     } else {
                         adjustedImage = image.resizedTo(height: option.maxHeight, applySmoothing: true)
