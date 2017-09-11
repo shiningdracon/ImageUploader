@@ -61,14 +61,6 @@ public class ImageUploader {
         }
     }
 
-    func uploadByBase64(base64: String, localMainName: String) {
-
-    }
-
-    func uploadByRemote(url: String, localMainName: String) {
-
-    }
-
     private func saveImage(image: Image, type: ImageTypes, localMainName: String) throws -> Array<(path: String, name: String, size: Int, hash: String, width: Int, height: Int)> {
 
         let (width, height) = image.size
